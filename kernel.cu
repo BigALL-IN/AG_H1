@@ -1,5 +1,4 @@
-﻿
-#include "cuda_runtime.h"
+﻿#include "cuda_runtime.h"
 #include "device_launch_parameters.h"
 
 #include <curand_kernel.h>
@@ -26,30 +25,30 @@ __global__ void Init_states(curandState* states, long long seed) {
 __global__ void InitBitstring(curandState* states, bool* b) {
     int idx = threadIdx.x + blockIdx.x * blockDim.x;
     if (idx >= globalConfig.it) return;
-    int startBit = threadIdx.x * globalConfig.bits;
-    for (int i = startBit; i < startBit + globalConfig.bits; i++) 
+    int startBit = idx * globalConfig.bits;
+    for (int i = startBit; i < startBit + globalConfig.bits; i++)
     {
         b[i] = curand_uniform(&states[idx]) > 0.5f;
     }
 }
 
-__device__ void Convert(bool* bits, double* values) 
+__device__ void Convert(bool* bits, double* values)
 {
     for (int j = 0; j < globalConfig.d; j++) {
         unsigned long long dec = 0;
         for (int i = 0; i < globalConfig.bitsPerDim; i++)
         {
             dec = (dec << 1) | bits[j * globalConfig.bitsPerDim + i];
-            
+
         }
         values[j] = globalConfig.a + dec * (globalConfig.b - globalConfig.a) / ((1ull << globalConfig.bitsPerDim) - 1);
-     
+
         //printf("\n");
         if (abs(values[j]) > 5.12)
-        {   
+        {
             printf("%llu %llu\n", dec, ((1ull << globalConfig.bitsPerDim) - 1));
             printf("%llu\n", dec);
-        
+
             for (int i = 0; i < globalConfig.bitsPerDim; i++)
             {
                 printf("%d", bits[j * globalConfig.bitsPerDim + i]);
@@ -98,9 +97,9 @@ __device__ double Sumsq(double* v, int dimensions) {
     return res;
 }
 
-__device__ double Eval(double* values) 
+__device__ double Eval(double* values)
 {
-    switch (globalConfig.func) 
+    switch (globalConfig.func)
     {
     case function::Rastrigin:
         return Rastrigin(values, globalConfig.d);
@@ -108,18 +107,18 @@ __device__ double Eval(double* values)
     case function::Michalewicz:
         return Michalewicz(values, globalConfig.d);
         break;
-    
+
     case function::Schwefel:
         return Sumsq(values, globalConfig.d);
         break;
-    
+
     case function::Dejong:
         return Dejong(values, globalConfig.d);
         break;
     }
 }
 
-__global__ void EvalFitness(double* values, double* candidates) 
+__global__ void EvalFitness(double* values, double* candidates)
 {
     int idx = threadIdx.x + blockIdx.x * blockDim.x;
     if (idx >= globalConfig.it) return;
@@ -130,18 +129,18 @@ __global__ void EvalFitness(double* values, double* candidates)
 __global__  void HillClimbFirstImpr(bool* bitstr, double* values, double* candidates) {
     int idx = threadIdx.x + blockIdx.x * blockDim.x;
     if (idx >= globalConfig.it) return;
-    int startBit = threadIdx.x * globalConfig.bits;
+    int startBit = idx * globalConfig.bits;
     double bestValue = candidates[idx];
     double currentValue = bestValue;
 
-    for (int i = 0; i < globalConfig.bits; i++) 
+    for (int i = 0; i < globalConfig.bits; i++)
     {
         int bitflip = startBit + i;
         bitstr[bitflip] = !bitstr[bitflip];
         Convert(bitstr + startBit, values + idx * globalConfig.d);
         currentValue = Eval(values + idx * globalConfig.d);
 
-        if (currentValue < bestValue) 
+        if (currentValue < bestValue)
         {
             bestValue = currentValue;
             //if(idx==0) printf("%f\n", bestValue);
@@ -156,7 +155,35 @@ __global__  void HillClimbFirstImpr(bool* bitstr, double* values, double* candid
 __global__  void HillClimbBestImpr(bool* bitstr, double* values, double* candidates) {
     int idx = threadIdx.x + blockIdx.x * blockDim.x;
     if (idx >= globalConfig.it) return;
-    int startBit = threadIdx.x * globalConfig.bits;
+    int startBit = idx * globalConfig.bits;
+    int flippedbit = 0;
+    double bestValue = candidates[idx];
+    double currentValue = bestValue;
+    bool improved = 1;
+    while (improved) {
+        improved = 0;
+        for (int i = 0; i < globalConfig.bits; i++)
+        {
+            int bitflip = startBit + i;
+            bitstr[bitflip] = !bitstr[bitflip];
+            Convert(bitstr + startBit, values + idx * globalConfig.d);
+            currentValue = Eval(values + idx * globalConfig.d);
+
+            if (currentValue < bestValue)
+            {
+                bestValue = currentValue;
+                flippedbit = bitflip;
+                improved = 1;
+            }
+            bitstr[bitflip] = !bitstr[flippedbit];
+        }
+        if (improved) {
+            bitstr[flippedbit] = !bitstr[flippedbit];
+        }
+
+    }
+
+    candidates[idx] = bestValue;
 }
 __global__  void HillClimbWorstImpr(bool* bitstr, double* values, double* candidates) {
     int idx = threadIdx.x + blockIdx.x * blockDim.x;
@@ -244,51 +271,51 @@ __global__  void Annealing(bool* bitstr, double* values, double* candidates, cur
 //}
 
 std::vector<double> launch(const Config& config) {
-    
+
     bool* bitstr;
     double* candidates;
     double* realValues;
     curandState* states;
     std::vector<double> result(config.it);
-   
+
     // Allocate device memory
-    cudaMalloc(&bitstr, sizeof(bool) * config.bits);
+    cudaMalloc(&bitstr, sizeof(bool) * config.bits * config.it);
     cudaMalloc(&candidates, sizeof(double) * config.it);
-    cudaMalloc(&states, sizeof(curandState) * config.it);  
+    cudaMalloc(&states, sizeof(curandState) * config.it);
     cudaMalloc(&realValues, sizeof(double) * config.it * config.d);
     cudaMemcpyToSymbol(globalConfig, &config, sizeof(Config));
-    
+
 
     // Launch kernel
-    Init_states <<< config.blocks, config.threads >>> (states, std::random_device{}());
-    InitBitstring <<< config.blocks, config.threads >>> (states, bitstr);
-    GenRealValues <<< config.blocks, config.threads >>> (bitstr, realValues);
-    EvalFitness <<< config.blocks, config.threads >>> (realValues, candidates);
+    Init_states << < config.blocks, config.threads >> > (states, std::random_device{}());
+    InitBitstring << < config.blocks, config.threads >> > (states, bitstr);
+    GenRealValues << < config.blocks, config.threads >> > (bitstr, realValues);
+    EvalFitness << < config.blocks, config.threads >> > (realValues, candidates);
 
-  
+
     switch (globalConfig.strat)
     {
-       case improvment::Firstimprov:
-           HillClimbFirstImpr <<< config.blocks, config.threads >>> (bitstr, realValues, candidates);
-          break;
-       case improvment::Bestimprov:
-           HillClimbBestImpr <<< config.blocks, config.threads >>> (bitstr, realValues, candidates);
-           break;
-       case improvment::Worstimprov:
-           HillClimbWorstImpr <<< config.blocks, config.threads >>> (bitstr, realValues, candidates);
-           break;
-       case improvment::Annealing:
-           Annealing <<< config.blocks, config.threads >>> (bitstr, realValues, candidates, states);
-           break;
+    case improvment::Firstimprov:
+        HillClimbFirstImpr << < config.blocks, config.threads >> > (bitstr, realValues, candidates);
+        break;
+    case improvment::Bestimprov:
+        HillClimbBestImpr << < config.blocks, config.threads >> > (bitstr, realValues, candidates);
+        break;
+    case improvment::Worstimprov:
+        HillClimbWorstImpr << < config.blocks, config.threads >> > (bitstr, realValues, candidates);
+        break;
+    case improvment::Annealing:
+        Annealing << < config.blocks, config.threads >> > (bitstr, realValues, candidates, states);
+        break;
     default:
         break;
     }
- 
+
 
     // Copy result back to host
     cudaMemcpy(result.data(), candidates, sizeof(double) * config.it, cudaMemcpyDeviceToHost);
-   
- 
+
+
     // Clean up device memory
     cudaFree(bitstr);
     cudaFree(candidates);

@@ -8,7 +8,7 @@ int main()
 {
     Config config;
     config.func = function::Rastrigin;
-    config.strat = improvment::Firstimprov;
+    config.strat = improvment::Bestimprov;
     switch (config.func)
     {
         case function::Rastrigin: 
@@ -39,18 +39,24 @@ int main()
         default:
             break;
     }
-    config.it = 6;
+    config.it = 10000;
     config.p = 5;
-    config.d = 5;
+    config.d = 10;
     int segments = (config.b - config.a) * pow(10, config.p);
     config.bitsPerDim = static_cast<int>(std::ceil(log2(segments)));
     config.bits = config.bitsPerDim * config.d;
-    config.threads = 64;
+    config.threads = 128;
     config.blocks = (config.it + config.threads - 1) / config.threads;
+    std::vector<double> result;
 
-    std::vector<double> result = launch(config);
-    
 
+    for (int i = 0; i < 30; i++) {
+        std::vector<double> iniresult = launch(config);
+        double finres = *std::min_element(iniresult.begin(), iniresult.end());
+        std::cout << std::fixed << std::setprecision(config.p);
+        std::cout << i << "/30 " << "best: " << finres << "\n";
+        result.push_back(finres);
+    }
     std::cout << "\n\n===================Final Results================\n\n\n" << std::flush;
     std::cout << "\n\n" << std::flush;;
        
