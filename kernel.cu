@@ -42,19 +42,6 @@ __device__ void Convert(bool* bits, double* values)
 
         }
         values[j] = globalConfig.a + dec * (globalConfig.b - globalConfig.a) / ((1ull << globalConfig.bitsPerDim) - 1);
-
-        //printf("\n");
-        if (abs(values[j]) > 5.12)
-        {
-            printf("%llu %llu\n", dec, ((1ull << globalConfig.bitsPerDim) - 1));
-            printf("%llu\n", dec);
-
-            for (int i = 0; i < globalConfig.bitsPerDim; i++)
-            {
-                printf("%d", bits[j * globalConfig.bitsPerDim + i]);
-            }
-            printf("\n\n\n\n\n");
-        }
     }
 }
 __global__ void GenRealValues(bool* bits, double* values) {
@@ -89,10 +76,10 @@ __device__ double Dejong(double* v, int dimensions) {
     return res;
 }
 
-__device__ double Sumsq(double* v, int dimensions) {
+__device__ double Schwefel(double* v, int dimensions) {
     double res = 0;
     for (int i = 0; i < dimensions; i++) {
-        res += (i + 1) * v[i] * v[i];
+        res += -v[i]*sin(sqrt(abs(v[i])));
     }
     return res;
 }
@@ -109,7 +96,7 @@ __device__ double Eval(double* values)
         break;
 
     case function::Schwefel:
-        return Sumsq(values, globalConfig.d);
+        return Schwefel(values, globalConfig.d);
         break;
 
     case function::Dejong:
@@ -143,7 +130,7 @@ __global__  void HillClimbFirstImpr(bool* bitstr, double* values, double* candid
         if (currentValue < bestValue)
         {
             bestValue = currentValue;
-            //if(idx==0) printf("%f\n", bestValue);
+           
             i = 0;
         }
         else { bitstr[bitflip] = !bitstr[bitflip]; }
@@ -156,7 +143,7 @@ __global__  void HillClimbBestImpr(bool* bitstr, double* values, double* candida
     int idx = threadIdx.x + blockIdx.x * blockDim.x;
     if (idx >= globalConfig.it) return;
     int startBit = idx * globalConfig.bits;
-    int flippedbit = 0;
+    int bestbit = 0;
     double bestValue = candidates[idx];
     double currentValue = bestValue;
     bool improved = 1;
@@ -172,13 +159,13 @@ __global__  void HillClimbBestImpr(bool* bitstr, double* values, double* candida
             if (currentValue < bestValue)
             {
                 bestValue = currentValue;
-                flippedbit = bitflip;
+                bestbit = bitflip;
                 improved = 1;
             }
-            bitstr[bitflip] = !bitstr[flippedbit];
+            bitstr[bitflip] = !bitstr[bitflip];
         }
         if (improved) {
-            bitstr[flippedbit] = !bitstr[flippedbit];
+            bitstr[bestbit] = !bitstr[bestbit];
         }
 
     }
@@ -188,87 +175,80 @@ __global__  void HillClimbBestImpr(bool* bitstr, double* values, double* candida
 __global__  void HillClimbWorstImpr(bool* bitstr, double* values, double* candidates) {
     int idx = threadIdx.x + blockIdx.x * blockDim.x;
     if (idx >= globalConfig.it) return;
-    int startBit = threadIdx.x * globalConfig.bits;
+    int startBit = idx * globalConfig.bits;
+    int bestbit = 0;
+    double bestValue = candidates[idx];
+    double currentValue = bestValue;
+    bool improved = 1;
+    while (improved) {
+        improved = 0;
+        for (int i = 0; i < globalConfig.bits; i++)
+        {
+            int bitflip = startBit + i;
+            bitstr[bitflip] = !bitstr[bitflip];
+            Convert(bitstr + startBit, values + idx * globalConfig.d);
+            currentValue = Eval(values + idx * globalConfig.d);
+            double initValue = currentValue;
+            if ((currentValue < bestValue) && (!improved))
+            {
+                bestValue = currentValue;
+                bestbit = bitflip;
+                improved = 1;
+            } else if ((currentValue > bestValue) && (currentValue < initValue))
+            {
+                bestValue = currentValue;
+                bestbit = bitflip;
+            }
+              
+            bitstr[bitflip] = !bitstr[bitflip];
+        }
+        if (improved) {
+            bitstr[bestbit] = !bitstr[bestbit];
+        }
+
+    }
+
+    candidates[idx] = bestValue;
 }
 __global__  void Annealing(bool* bitstr, double* values, double* candidates, curandState* states) {
     int idx = threadIdx.x + blockIdx.x * blockDim.x;
     if (idx >= globalConfig.it) return;
-    int startBit = threadIdx.x * globalConfig.bits;
+    int startBit = idx * globalConfig.bits;
+    int T = 1000 * pow(0.95, idx);
+    int bestbit = 0;
+    double bestValue = candidates[idx];
+    double currentValue = bestValue;
+    int counter = 0;
+    int changeCount = 0;
+    int maxAttempts = 100;
+
+    do {
+        
+        for (int i = 0; i < globalConfig.bits; i++)
+        {
+            int bitflip = startBit + i;
+            bitstr[bitflip] = !bitstr[bitflip];
+            Convert(bitstr + startBit, values + idx * globalConfig.d);
+            currentValue = Eval(values + idx * globalConfig.d);
+
+            if (currentValue < bestValue)
+            {
+                bestValue = currentValue;
+                bestbit = bitflip;
+                
+            } else if (curand_uniform(&states[idx]) < exp(-fabs(currentValue - bestValue) / T)){
+                bestValue = currentValue;
+                bestbit = bitflip;
+                
+            }
+            bitstr[bitflip] = !bitstr[bitflip];
+        }
+        
+
+    } while (changeCount < maxAttempts && counter < 10 * maxAttempts);
+
+    candidates[idx] = bestValue;
 }
-
-
-// CUDA-compatible Improve function
-//__device__ bitstring Improve(bitstring* neigh, int neigh_size, bitstring vc, bool impr) {
-//    double init = Eval(vc);
-//    bitstring result = vc;
-//
-//    switch (impr) {
-//    case 0:
-//        for (int i = 0; i < neigh_size; i++) {
-//            double candidate = Eval(neigh[i]);
-//            if (init > candidate) {
-//                result = neigh[i];
-//                return result;
-//            }
-//        }
-//        break;
-//    case 1:
-//        result = neigh[0];
-//        for (int i = 1; i < neigh_size; i++) {
-//            double candidate = Eval(neigh[i]);
-//            if (init > candidate) {
-//                init = candidate;
-//                result = neigh[i];
-//            }
-//        }
-//        break;
-//    }
-//
-//    return result;
-//}
-
-// Kernel to perform optimization
-//__global__ void local_vc(double* result, double* T, curandState* states) {
-//    int idx = threadIdx.x + blockIdx.x * blockDim.x;
-//    bool reachedLocal = false;
-//    bitstring vc = Gen_num();  // Generate a random bitstring
-//    double initcandidate = Eval(vc);
-//    int counter = 0;
-//    int changeCount = 0;
-//    int maxAttempts = 100;
-//    int neigh_size = 5;  // Example neighborhood size
-//    bitstring neigh[5];  // Example neighborhood array
-//
-//    // Generate neighborhood
-//    for (int i = 0; i < neigh_size; i++) {
-//        neigh[i] = vc;  // Populate with current vc, but normally this should be varied
-//        neigh[i] ^= (1 << (i % Nbit()));  // Example: flipping some bits to create a neighborhood
-//    }
-//
-//    do {
-//        counter++;
-//        bitstring vn = Improve(neigh, neigh_size, vc, 1);
-//        double candidateNeigh = Eval(vn);
-//
-//        if (candidateNeigh < initcandidate) {
-//            vc = vn;
-//            initcandidate = candidateNeigh;
-//            changeCount++;
-//        }
-//        else {
-//            // Simulated annealing-like condition with random number generation on the device
-//            float random_vail = curand_uniform(&states[idx]);
-//            if (random_val < exp(-fabs(candidateNeigh - initcandidate) / *T)) {
-//                vc = vn;
-//                changeCount++;
-//                initcandidate = candidateNeigh;
-//            }
-//        }
-//
-//    } while (changeCount < maxAttempts && counter < 10 * maxAttempts);
-//
-//    *result = initcandidate;
-//}
 
 std::vector<double> launch(const Config& config) {
 

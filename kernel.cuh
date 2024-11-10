@@ -2,8 +2,10 @@
 #define _USE_MATH_DEFINES
 #include <math.h>
 #include <vector>
+#include <map>
 enum class function { Rastrigin, Michalewicz, Dejong, Schwefel };
 enum class improvment { Firstimprov, Bestimprov, Worstimprov, Annealing };
+enum class dimensions {d5, d10, d30, d100};
 
 struct Config {
 
@@ -17,6 +19,7 @@ struct Config {
     int temp;
     int threads;
     int blocks;
+    dimensions dimens;
     function func;
     improvment strat;
 };
