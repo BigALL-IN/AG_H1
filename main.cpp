@@ -5,7 +5,7 @@
 #include <iomanip>
 #include <chrono>
 #include <string.h>
-int main() 
+int main()
 {
     Config config;
     std::string theFunction;
@@ -17,37 +17,37 @@ int main()
     theStrat = "Firstimprov";
     switch (config.func)
     {
-        case function::Rastrigin: 
-        {
-            config.a = -5.12;
-            config.b = 5.12;
-            theFunction = "Rastrigin";
-            break;
-        }
-        case function::Michalewicz: 
-        {
-            config.a = 0;
-            config.b = M_PI;
-            theFunction = "Michalewicz";
-            break;
-        }
-        case function::Dejong: 
-        {
-            config.a = -5.12;
-            config.b = 5.12;
-            theFunction = "DeJong";
-            break;
-        }
-        case function::Schwefel:
-        {
-            config.a = -500;
-            config.b = 500;
-            theFunction = "Schwefel";
-            break;
-        }
+    case function::Rastrigin:
+    {
+        config.a = -5.12;
+        config.b = 5.12;
+        theFunction = "Rastrigin";
+        break;
+    }
+    case function::Michalewicz:
+    {
+        config.a = 0;
+        config.b = M_PI;
+        theFunction = "Michalewicz";
+        break;
+    }
+    case function::Dejong:
+    {
+        config.a = -5.12;
+        config.b = 5.12;
+        theFunction = "DeJong";
+        break;
+    }
+    case function::Schwefel:
+    {
+        config.a = -500;
+        config.b = 500;
+        theFunction = "Schwefel";
+        break;
+    }
 
-        default:
-            break;
+    default:
+        break;
     }
 
     switch (config.dimens)
@@ -100,16 +100,16 @@ int main()
         std::chrono::duration<double> duration = end - start;
         double finres = *std::min_element(iniresult.begin(), iniresult.end());
         runtime[i] = duration.count();
-       //std::cout << std::fixed << std::setprecision(config.p);
-       // std::cout << i+1 << "/" << samples<< " " << "best: " << finres << "\n";
-        //std::cout << "Runtime: " << runtime[i] << "\n";
-        result[i]=finres;
+        std::cout << std::fixed << std::setprecision(config.p);
+        std::cout << i+1 << "/" << samples<< " " << "best: " << finres << "\n";
+        std::cout << "Runtime: " << runtime[i] << "\n";
+        result[i] = finres;
     }
 
 
 
 
-    std::cout << "\n==================="<< theFunction <<" "<<theDim <<" "<< theStrat << " Final Results : ================\n" << std::flush;
+    std::cout << "\n===================" << theFunction << " " << theDim << " " << theStrat << " Final Results : ================\n" << std::flush;
     std::cout << std::fixed << std::setprecision(config.p);
     std::cout << "Best result: " << *std::min_element(result.begin(), result.end()) << '\n' << std::flush;
     std::cout << "Best Runtime: " << *std::min_element(runtime.begin(), runtime.end()) << "\n\n" << std::flush;
@@ -121,6 +121,6 @@ int main()
 
 
 
-                
+
 
 }

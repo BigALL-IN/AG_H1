@@ -214,38 +214,45 @@ __global__  void Annealing(bool* bitstr, double* values, double* candidates, cur
     int idx = threadIdx.x + blockIdx.x * blockDim.x;
     if (idx >= globalConfig.it) return;
     int startBit = idx * globalConfig.bits;
-    int T = 1000 * pow(0.95, idx);
+    int T = 1000;
     int bestbit = 0;
     double bestValue = candidates[idx];
     double currentValue = bestValue;
     int counter = 0;
-    int changeCount = 0;
-    int maxAttempts = 100;
+    int i = 0;
+    int noChangeCount = 0;
+    int maxAttempts = 200;
 
     do {
-        
-        for (int i = 0; i < globalConfig.bits; i++)
+        counter++;
+        i= 0;
+        do
         {
-            int bitflip = startBit + i;
+            i++;
+            int bitflip = startBit + floorf(curand_uniform(&states[idx]) * globalConfig.bits);
             bitstr[bitflip] = !bitstr[bitflip];
             Convert(bitstr + startBit, values + idx * globalConfig.d);
             currentValue = Eval(values + idx * globalConfig.d);
 
             if (currentValue < bestValue)
             {
+               
                 bestValue = currentValue;
-                bestbit = bitflip;
+                noChangeCount = 0;
                 
             } else if (curand_uniform(&states[idx]) < exp(-fabs(currentValue - bestValue) / T)){
                 bestValue = currentValue;
-                bestbit = bitflip;
-                
+                noChangeCount = 0;
             }
-            bitstr[bitflip] = !bitstr[bitflip];
-        }
-        
+            else {
+                bitstr[bitflip] = !bitstr[bitflip];
+                noChangeCount++;
+            }
+            
+        } while (noChangeCount < maxAttempts && i < 10*maxAttempts);
+        T = T * pow(0.95, counter);
 
-    } while (changeCount < maxAttempts && counter < 10 * maxAttempts);
+    } while (counter < 100);
 
     candidates[idx] = bestValue;
 }
@@ -273,7 +280,7 @@ std::vector<double> launch(const Config& config) {
     EvalFitness << < config.blocks, config.threads >> > (realValues, candidates);
 
 
-    switch (globalConfig.strat)
+    switch (config.strat)
     {
     case improvment::Firstimprov:
         HillClimbFirstImpr << < config.blocks, config.threads >> > (bitstr, realValues, candidates);
